@@ -239,15 +239,45 @@ public class MarkLogicRepositoryConnectionTest extends Rdf4jTestBase {
     }
 
     // https://github.com/marklogic/marklogic-sesame/issues/64
-    // not implemented just yet
-    @Ignore
+    @Test
     public void testAddGZippedRDF() throws Exception {
-        File inputFile = new File("src/test/resources/testdata/databases.rdf.gz");
+        File inputFile = new File("src/test/resources/testdata/databases.ttl.gz");
         FileInputStream fis = new FileInputStream(inputFile);
         String baseURI = "http://example.org/example1/";
         Resource context1 = conn.getValueFactory().createIRI("http://marklogic.com/test/context1");
         Resource context2 = conn.getValueFactory().createIRI("http://marklogic.com/test/context2");
-        conn.add(fis, baseURI, RDFFormat.RDFXML, context1, context2);
+        conn.add(fis, baseURI, RDFFormat.TURTLE, context1, context2);
+        conn.clear(context1, context2);
+    }
+
+    @Test
+    public void testAddZippedRDF() throws Exception {
+        File inputFile = new File("src/test/resources/testdata/databases.ttl.zip");
+        FileInputStream fis = new FileInputStream(inputFile);
+        String baseURI = "http://example.org/example1/";
+        Resource context1 = conn.getValueFactory().createIRI("http://marklogic.com/test/context1");
+        Resource context2 = conn.getValueFactory().createIRI("http://marklogic.com/test/context2");
+        conn.add(fis, baseURI, RDFFormat.TURTLE, context1, context2);
+        conn.clear(context1, context2);
+    }
+
+    @Test
+    public void testAddZippedRDFFile() throws Exception {
+        File inputFile = new File("src/test/resources/testdata/databases.ttl.zip");
+        String baseURI = "http://example.org/example1/";
+        Resource context1 = conn.getValueFactory().createIRI("http://marklogic.com/test/context1");
+        Resource context2 = conn.getValueFactory().createIRI("http://marklogic.com/test/context2");
+        conn.add(inputFile, baseURI, RDFFormat.TURTLE, context1, context2);
+        conn.clear(context1, context2);
+    }
+
+    @Test
+    public void testAddGZippedRDFFile() throws Exception {
+        File inputFile = new File("src/test/resources/testdata/databases.ttl.gz");
+        String baseURI = "http://example.org/example1/";
+        Resource context1 = conn.getValueFactory().createIRI("http://marklogic.com/test/context1");
+        Resource context2 = conn.getValueFactory().createIRI("http://marklogic.com/test/context2");
+        conn.add(inputFile, baseURI, RDFFormat.TURTLE, context1, context2);
         conn.clear(context1, context2);
     }
 

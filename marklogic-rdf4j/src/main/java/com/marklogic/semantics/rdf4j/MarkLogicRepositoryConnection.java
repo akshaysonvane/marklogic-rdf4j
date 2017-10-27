@@ -21,18 +21,21 @@ package com.marklogic.semantics.rdf4j;
 
 import static org.eclipse.rdf4j.query.QueryLanguage.SPARQL;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
+import java.io.*;
 import java.net.URL;
 import java.util.Iterator;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import com.marklogic.client.DatabaseClient;
 import com.marklogic.client.Transaction;
 import com.marklogic.semantics.rdf4j.utils.Util;
 import org.eclipse.rdf4j.IsolationLevel;
 import org.eclipse.rdf4j.IsolationLevels;
+import org.eclipse.rdf4j.common.io.GZipUtil;
+import org.eclipse.rdf4j.common.io.UncloseableInputStream;
+import org.eclipse.rdf4j.common.io.ZipUtil;
 import org.eclipse.rdf4j.common.iteration.CloseableIteration;
 import org.eclipse.rdf4j.common.iteration.ConvertingIteration;
 import org.eclipse.rdf4j.common.iteration.EmptyIteration;
@@ -67,10 +70,7 @@ import org.eclipse.rdf4j.repository.RepositoryResult;
 import org.eclipse.rdf4j.repository.UnknownTransactionStateException;
 import org.eclipse.rdf4j.repository.base.AbstractRepositoryConnection;
 import org.eclipse.rdf4j.repository.sparql.query.SPARQLQueryBindingSet;
-import org.eclipse.rdf4j.rio.RDFFormat;
-import org.eclipse.rdf4j.rio.RDFHandler;
-import org.eclipse.rdf4j.rio.RDFHandlerException;
-import org.eclipse.rdf4j.rio.RDFParseException;
+import org.eclipse.rdf4j.rio.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -967,7 +967,17 @@ public class MarkLogicRepositoryConnection extends AbstractRepositoryConnection 
     @Override
     public void add(InputStream in, String baseURI, RDFFormat dataFormat, Resource... contexts) throws IOException, RDFParseException, RepositoryException {
     	verifyContextNotNull(contexts);
-    	getClient().sendAdd(in, baseURI, dataFormat, contexts);
+        if (!in.markSupported()) {
+            in = new BufferedInputStream(in, 1024);
+        }
+
+        if (ZipUtil.isZipStream(in)) {
+            loadZip(in, baseURI, dataFormat, contexts);
+        } else if (GZipUtil.isGZipStream(in)) {
+            getClient().sendAdd(new GZIPInputStream(in), baseURI, dataFormat, contexts);
+        } else {
+            getClient().sendAdd(in, baseURI, dataFormat, contexts);
+        }
     }
 
     /**
@@ -986,7 +996,14 @@ public class MarkLogicRepositoryConnection extends AbstractRepositoryConnection 
     @Override
     public void add(File file, String baseURI, RDFFormat dataFormat, Resource... contexts) throws IOException, RDFParseException, RepositoryException {
         verifyContextNotNull(contexts);
-	 	if(Util.notNull(baseURI)) {
+
+        String fileType = util.getFileExtension(file.getName());
+        if(fileType.equalsIgnoreCase("zip") || fileType.equalsIgnoreCase("gz"))
+        {
+            FileInputStream fis = new FileInputStream(file);
+            add(fis, baseURI, dataFormat, contexts);
+        }
+	 	else if(Util.notNull(baseURI)) {
             getClient().sendAdd(file, baseURI, dataFormat, contexts);
         }else{
             getClient().sendAdd(file, file.toURI().toString(), dataFormat, contexts);
@@ -1030,7 +1047,7 @@ public class MarkLogicRepositoryConnection extends AbstractRepositoryConnection 
             getClient().sendAdd(new URL(url.toString()).openStream(), baseURI, dataFormat, contexts);
         }else{
             getClient().sendAdd(new URL(url.toString()).openStream(), url.toString(), dataFormat, contexts);
-        }    
+        }
     }
 
     /**
@@ -1462,6 +1479,36 @@ public class MarkLogicRepositoryConnection extends AbstractRepositoryConnection 
     public Transaction getTransaction()
     {
         return this.client.getTransaction();
+    }
+
+
+    private void loadZip(InputStream in, String baseURI, RDFFormat dataFormat, Resource... contexts)
+            throws IOException, RDFParseException, RDFHandlerException
+    {
+
+        try (ZipInputStream zipIn = new ZipInputStream(in);) {
+            for (ZipEntry entry = zipIn.getNextEntry(); entry != null; entry = zipIn.getNextEntry()) {
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                try {
+                    RDFFormat format = Rio.getParserFormatForFileName(entry.getName()).orElse(dataFormat);
+
+                    // Prevent parser (Xerces) from closing the input stream
+                    UncloseableInputStream wrapper = new UncloseableInputStream(zipIn);
+                    add(wrapper, baseURI, format, contexts);
+
+                } catch (RDFParseException e) {
+                    String msg = e.getMessage() + " in " + entry.getName();
+                    RDFParseException pe = new RDFParseException(msg, e.getLineNumber(), e.getColumnNumber());
+                    pe.initCause(e);
+                    throw pe;
+                } finally {
+                    zipIn.closeEntry();
+                }
+            }
+        }
     }
 
     /**
