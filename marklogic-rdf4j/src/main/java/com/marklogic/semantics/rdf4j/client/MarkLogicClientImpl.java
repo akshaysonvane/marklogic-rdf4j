@@ -69,6 +69,9 @@ public class MarkLogicClientImpl {
 
     private Util util = Util.getInstance();
 
+    int doc_count = 0;
+    int graph_docs = 0;
+
     /**
      * Constructor initialized with connection parameters.
      *
@@ -308,6 +311,8 @@ public class MarkLogicClientImpl {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
         List<Future<?>> futures = new ArrayList<>();
 
+        doc_count = 0;
+        graph_docs = 0;
         if (dataFormat.supportsContexts()) {
             //Quads
 
@@ -321,6 +326,7 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
+            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -341,6 +347,7 @@ public class MarkLogicClientImpl {
             RDFParser parser = Rio.createParser(dataFormat);
             parseTriples(tx, parser, executor, futures, userContexts);
 
+            System.out.println("Parse time: " + System.currentTimeMillis());
             try {
                 InputStream in = new FileInputStream(file);
                 parser.parse(in, Util.notNull(baseURI) ? baseURI : file.toURI().toString());
@@ -374,6 +381,8 @@ public class MarkLogicClientImpl {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
         List<Future<?>> futures = new ArrayList<>();
 
+        doc_count = 0;
+        graph_docs = 0;
         if (dataFormat.supportsContexts()) {
             //Quads
 
@@ -386,6 +395,7 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
+            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -411,6 +421,7 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
+            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -712,6 +723,8 @@ public class MarkLogicClientImpl {
             }
 
             void endDoc() {
+                doc_count++;
+
                 sb.append("</sem:triples>\n");
                 String st = sb.toString();
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(userContexts);
@@ -735,6 +748,8 @@ public class MarkLogicClientImpl {
                 endDoc();
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                System.out.println("Document count: "+ doc_count);
+                System.out.println("Graph count: "+ graph_docs);
             }
 
             @Override
@@ -789,6 +804,8 @@ public class MarkLogicClientImpl {
             }
 
             public void endDoc(String graph) {
+                doc_count++;
+
                 StringBuilder sb = graphCache.get(graph);
                 sb.append("</sem:triples>\n");
 
@@ -833,6 +850,8 @@ public class MarkLogicClientImpl {
                 }
 
                 insertGraphDocuments(tx, executor, futures, graphSet);
+                System.out.println("Document count: "+ doc_count);
+                System.out.println("Graph count: "+ graph_docs);
             }
 
             @Override
@@ -952,6 +971,7 @@ public class MarkLogicClientImpl {
         int MAX_GRAPHS_PER_REQUEST = 100;
         int max = MAX_GRAPHS_PER_REQUEST;
         StringBuilder stringBuilder = new StringBuilder();
+        graph_docs += graphSet.size();
 
         for (String graph : graphSet) {
             if (max == 1) {
