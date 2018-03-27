@@ -956,15 +956,15 @@ public class MarkLogicClientImpl {
         for (String graph : graphSet) {
             if (max == 1) {
                 max = MAX_GRAPHS_PER_REQUEST;
-                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+                stringBuilder.append("if(fn:empty(fn:doc(\"").append(validateIRI(graph)).append("\"))) then sem:create-graph-document(sem:iri(\"").append(validateIRI(graph)).append("\"),(xdmp:default-permissions())) else ();");
                 String graphsQuery = stringBuilder.toString();
                 futures.add(executor.submit(() -> {
-                    performUpdateQuery(graphsQuery, null, tx, true, null);
+                    databaseClient.newServerEval().xquery(graphsQuery).transaction(tx).eval();
                 }));
                 stringBuilder = new StringBuilder();
             } else {
                 max--;
-                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+                stringBuilder.append("if(fn:empty(fn:doc(\"").append(validateIRI(graph)).append("\"))) then sem:create-graph-document(sem:iri(\"").append(validateIRI(graph)).append("\"),(xdmp:default-permissions())) else ();");
             }
         }
 
@@ -972,7 +972,7 @@ public class MarkLogicClientImpl {
         String graphsQuery = stringBuilder.toString();
         if (!graphsQuery.equals("")) {
             futures.add(executor.submit(() -> {
-                performUpdateQuery(graphsQuery, null, tx, true, null);
+                databaseClient.newServerEval().xquery(graphsQuery).transaction(tx).eval();
             }));
         }
     }
