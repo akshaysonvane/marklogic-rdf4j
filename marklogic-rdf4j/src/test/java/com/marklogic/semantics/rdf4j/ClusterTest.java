@@ -49,7 +49,7 @@ public class ClusterTest extends Rdf4jTestBase {
 
     @Test
     public void testAddNQuadsOrTrigs() throws Exception {
-        File folder = new File("/Users/asonvane/Desktop/data/");
+        File folder = new File("/Users/asonvane/Desktop/data2/");
         File[] listOfFiles = folder.listFiles();
         long startTime;
 
@@ -61,15 +61,18 @@ public class ClusterTest extends Rdf4jTestBase {
                 startTime = System.currentTimeMillis();
                 System.out.println("Start time: " + startTime);
 
+                conn.begin();
                 conn.add(listOfFiles[i], "http://example.org/example1/", RDFFormat.TRIG);
+                conn.commit();
 
                 System.out.println("Ingestion time: " + (System.currentTimeMillis() - startTime));
             } else if (ext.equals("nquad") || ext.equals("nq")) {
                 startTime = System.currentTimeMillis();
                 System.out.println("Start time: " + startTime);
 
-
+                conn.begin();
                 conn.add(listOfFiles[i], "http://example.org/example1/", RDFFormat.NQUADS);
+                conn.commit();
 
                 System.out.println("Ingestion time: " + (System.currentTimeMillis() - startTime));
             } else {

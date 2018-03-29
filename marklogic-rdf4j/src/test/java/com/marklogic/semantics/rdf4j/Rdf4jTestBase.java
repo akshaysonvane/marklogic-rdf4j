@@ -81,7 +81,7 @@ public class Rdf4jTestBase {
         readerUser = props.getProperty("readerUser");
         readerPassword = props.getProperty("readerPassword");
 
-        adminClient = DatabaseClientFactory.newClient("rh7-intel64-80-qa-dev-5", port, new DatabaseClientFactory.DigestAuthContext(adminUser, adminPassword));
+        adminClient = DatabaseClientFactory.newClient("rh7-intel64-80-qa-dev-5", 8008, new DatabaseClientFactory.DigestAuthContext(adminUser, adminPassword));
         writerClient = DatabaseClientFactory.newClient(host, port, new DatabaseClientFactory.DigestAuthContext(writerUser, writerPassword));
         readerClient = DatabaseClientFactory.newClient(host, port, new DatabaseClientFactory.DigestAuthContext(readerUser, readerPassword));
 

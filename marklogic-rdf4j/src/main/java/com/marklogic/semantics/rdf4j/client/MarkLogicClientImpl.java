@@ -967,6 +967,36 @@ public class MarkLogicClientImpl {
         }
     }
 
+//    private void insertGraphDocuments(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, Set<String> graphSet) {
+//        int MAX_GRAPHS_PER_REQUEST = 100;
+//        int max = MAX_GRAPHS_PER_REQUEST;
+//        StringBuilder stringBuilder = new StringBuilder();
+//        graph_docs += graphSet.size();
+//
+//        for (String graph : graphSet) {
+//            if (max == 1) {
+//                max = MAX_GRAPHS_PER_REQUEST;
+//                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+//                String graphsQuery = stringBuilder.toString();
+//                futures.add(executor.submit(() -> {
+//                    performUpdateQuery(graphsQuery, null, tx, true, null);
+//                }));
+//                stringBuilder = new StringBuilder();
+//            } else {
+//                max--;
+//                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+//            }
+//        }
+//
+//        //flush remaining graph documents when max_graphs_per_request is not satisfied.
+//        String graphsQuery = stringBuilder.toString();
+//        if (!graphsQuery.equals("")) {
+//            futures.add(executor.submit(() -> {
+//                performUpdateQuery(graphsQuery, null, tx, true, null);
+//            }));
+//        }
+//    }
+
     private void insertGraphDocuments(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, Set<String> graphSet) {
         int MAX_GRAPHS_PER_REQUEST = 100;
         int max = MAX_GRAPHS_PER_REQUEST;
