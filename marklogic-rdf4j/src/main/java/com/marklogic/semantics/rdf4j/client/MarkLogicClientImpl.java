@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import com.marklogic.client.document.DocumentWriteSet;
+import com.marklogic.client.document.ServerTransform;
 import com.marklogic.client.document.XMLDocumentManager;
 import com.marklogic.client.io.DocumentMetadataHandle;
 import com.marklogic.client.io.StringHandle;
@@ -694,16 +695,26 @@ public class MarkLogicClientImpl {
         private DocumentWriteSet writeSet;
         private Transaction tx;
         private XMLDocumentManager documentManager;
+        private List<String> graphList;
 
-        Task(DocumentWriteSet writeSet, Transaction tx, XMLDocumentManager documentManager) {
+        Task(DocumentWriteSet writeSet, Transaction tx, XMLDocumentManager documentManager, List<String> graphList) {
             this.writeSet = writeSet;
             this.tx = tx;
             this.documentManager = documentManager;
+            this.graphList = graphList;
         }
 
         @Override
         public void run() {
-            documentManager.write(writeSet, tx);
+            if (graphList != null){
+                // To be used with the server-side transform https://gist.github.com/akshaysonvane/da14eea5e55fb0449fea3ce96d2950bf
+                ServerTransform transform = new ServerTransform("create-graph-doc-transform");
+                transform.put("graph-uris", graphList);
+                documentManager.write(writeSet, transform, tx);
+            }
+            else{
+                documentManager.write(writeSet, tx);
+            }
         }
     }
 
@@ -733,7 +744,7 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
                     writeSet = documentManager.newWriteSet();
                 }
             }
@@ -747,7 +758,7 @@ public class MarkLogicClientImpl {
             public void endRDF() throws RDFHandlerException {
                 endDoc();
                 //flush remaining documents when DOCS_PER_BATCH is not full
-                futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
             }
 
             @Override
@@ -809,11 +820,17 @@ public class MarkLogicClientImpl {
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
                 writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
 
+                if (!graphSet.contains(graph)){
+                    graphSet.add(graph);
+                    graphList.add(graph);
+                }
+
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                     writeSet = documentManager.newWriteSet();
+                    graphList = new ArrayList<>();
                 }
 
                 graphCache.remove(graph);
@@ -823,6 +840,7 @@ public class MarkLogicClientImpl {
             Map<String, StringBuilder> graphCache;
             Map<String, Integer> tripleCounts;
             Set<String> graphSet;
+            List<String> graphList;
 
             @Override
             public void startRDF() throws RDFHandlerException {
@@ -831,6 +849,7 @@ public class MarkLogicClientImpl {
                 tripleCounts = new ConcurrentHashMap<>();
                 writeSet = documentManager.newWriteSet();
                 graphSet = new HashSet<>();
+                graphList = new ArrayList<>();
             }
 
             @Override
@@ -842,10 +861,10 @@ public class MarkLogicClientImpl {
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
 
-                insertGraphDocuments(tx, executor, futures, graphSet);
+                //insertGraphDocuments(tx, executor, futures, graphSet);
             }
 
             @Override
@@ -860,7 +879,7 @@ public class MarkLogicClientImpl {
                     String graph = st.getContext().toString();
 
                     //To create graph document
-                    graphSet.add(graph);
+                    //graphSet.add(graph);
 
                     if (tripleCounts.containsKey(graph)) {
                         int j = 1 + tripleCounts.get(graph);
@@ -895,7 +914,7 @@ public class MarkLogicClientImpl {
                     }
 
                     //To create graph document
-                    graphSet.add(DEFAULT_GRAPH_URI);
+                    //graphSet.add(DEFAULT_GRAPH_URI);
 
                     triple(graphCache.get(DEFAULT_GRAPH_URI), st);
                 }
@@ -938,11 +957,17 @@ public class MarkLogicClientImpl {
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
                 writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
 
+                if (!graphSet.contains(graph)){
+                    graphSet.add(graph);
+                    graphList.add(graph);
+                }
+
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                     writeSet = documentManager.newWriteSet();
+                    graphList = new ArrayList<>();
                 }
 
                 graphCache.remove(graph);
@@ -952,6 +977,7 @@ public class MarkLogicClientImpl {
             Map<String, StringBuilder> graphCache;
             Map<String, Integer> tripleCounts;
             Set<String> graphSet;
+            List<String> graphList;
 
             @Override
             public void startRDF() throws RDFHandlerException {
@@ -960,6 +986,7 @@ public class MarkLogicClientImpl {
                 tripleCounts = new ConcurrentHashMap<>();
                 writeSet = documentManager.newWriteSet();
                 graphSet = new HashSet<>();
+                graphList = new ArrayList<>();
             }
 
             @Override
@@ -971,10 +998,10 @@ public class MarkLogicClientImpl {
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
 
-                insertGraphDocuments(tx, executor, futures, graphSet);
+                //insertGraphDocuments(tx, executor, futures, graphSet);
             }
 
             @Override
@@ -986,7 +1013,7 @@ public class MarkLogicClientImpl {
             public void handleStatement(Statement st) throws RDFHandlerException {
                 for (String context : userContexts){
 
-                    graphSet.add(context);
+                    //graphSet.add(context);
 
                     if (tripleCounts.containsKey(context)) {
                         int j = 1 + tripleCounts.get(context);
