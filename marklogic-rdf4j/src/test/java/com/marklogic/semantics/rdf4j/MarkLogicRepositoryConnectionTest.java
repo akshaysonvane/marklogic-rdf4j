@@ -293,7 +293,7 @@ public class MarkLogicRepositoryConnectionTest extends Rdf4jTestBase {
         BooleanQuery booleanQuery = conn.prepareBooleanQuery(QueryLanguage.SPARQL, checkQuery);
         Assert.assertTrue(booleanQuery.evaluate());
 
-        conn.clear(context1,context2,context3,context4,context5,context6,context7,context8);
+        conn.clear(context3, context4);
     }
 
     @Test
