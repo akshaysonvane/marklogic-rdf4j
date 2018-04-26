@@ -308,7 +308,7 @@ public class MarkLogicClientImpl {
      */
     // performAdd
     public void performAdd(File file, String baseURI, RDFFormat dataFormat, Transaction tx, Resource... contexts) throws RDFParseException {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(Integer.parseInt(util.getProps().getProperty("threadPoolSize", "18")));
         List<Future<?>> futures = new ArrayList<>();
 
         doc_count = 0;
@@ -378,7 +378,7 @@ public class MarkLogicClientImpl {
      * @throws RDFParseException
      */
     public void performAdd(InputStream in, String baseURI, RDFFormat dataFormat, Transaction tx, Resource... contexts) throws RDFParseException, MarkLogicRdf4jException {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(Integer.parseInt(util.getProps().getProperty("threadPoolSize", "18")));
         List<Future<?>> futures = new ArrayList<>();
 
         doc_count = 0;
@@ -709,8 +709,8 @@ public class MarkLogicClientImpl {
         parser.setRDFHandler(new RDFHandler() {
             StringBuffer sb;
             int i = 0;
-            int T_PER_DOC = 1000;
-            int DOCS_PER_BATCH = 4;
+            int T_PER_DOC = Integer.parseInt(util.getProps().getProperty("triplesT_PER_DOC", "1000"));
+            int DOCS_PER_BATCH = Integer.parseInt(util.getProps().getProperty("triplesDOCS_PER_BATCH", "4"));
             int n = 0;
 
 
@@ -784,8 +784,8 @@ public class MarkLogicClientImpl {
         parser.setRDFHandler(new RDFHandler() {
 
             int i = 0;
-            int T_PER_DOC = 100;
-            int DOCS_PER_BATCH = 3000;
+            int T_PER_DOC = Integer.parseInt(util.getProps().getProperty("quadsT_PER_DOC", "100"));
+            int DOCS_PER_BATCH = Integer.parseInt(util.getProps().getProperty("quadsDOCS_PER_BATCH", "3000"));
             int n = 0;
 
             XMLDocumentManager documentManager = databaseClient.newXMLDocumentManager();
@@ -998,7 +998,7 @@ public class MarkLogicClientImpl {
 //    }
 
     private void insertGraphDocuments(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, Set<String> graphSet) {
-        int MAX_GRAPHS_PER_REQUEST = 100;
+        int MAX_GRAPHS_PER_REQUEST = Integer.parseInt(util.getProps().getProperty("MAX_GRAPHS_PER_REQUEST", "100"));
         int max = MAX_GRAPHS_PER_REQUEST;
         StringBuilder stringBuilder = new StringBuilder();
         graph_docs += graphSet.size();

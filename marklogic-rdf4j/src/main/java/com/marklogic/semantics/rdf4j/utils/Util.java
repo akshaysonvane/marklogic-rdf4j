@@ -21,11 +21,21 @@ import org.eclipse.rdf4j.model.Value;
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 import org.eclipse.rdf4j.rio.RDFFormat;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.Properties;
+
 
 public class Util {
     private static Util util = null;
+    private Properties props;
     private Util(){
-
+        props = new Properties();
+        try {
+            props.load(new FileInputStream("gradle.properties"));
+        } catch (IOException e) {
+            System.err.println("Properties file not loaded.");
+        }
     }
 
     /**
@@ -131,5 +141,10 @@ public class Util {
         }
 
         return null;
+    }
+
+    public Properties getProps()
+    {
+        return props;
     }
 }
