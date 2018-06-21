@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import com.marklogic.client.document.DocumentWriteSet;
+import com.marklogic.client.document.ServerTransform;
 import com.marklogic.client.document.XMLDocumentManager;
 import com.marklogic.client.io.DocumentMetadataHandle;
 import com.marklogic.client.io.StringHandle;
@@ -68,9 +69,6 @@ public class MarkLogicClientImpl {
     private DatabaseClient databaseClient;
 
     private Util util = Util.getInstance();
-
-    int doc_count = 0;
-    int graph_docs = 0;
 
     /**
      * Constructor initialized with connection parameters.
@@ -311,13 +309,16 @@ public class MarkLogicClientImpl {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(Integer.parseInt(util.getProps().getProperty("threadPoolSize", "18")));
         List<Future<?>> futures = new ArrayList<>();
 
-        doc_count = 0;
-        graph_docs = 0;
         if (dataFormat.supportsContexts()) {
             //Quads
 
             RDFParser parser = Rio.createParser(dataFormat);
-            parseQuads(tx, executor, futures, parser);
+            if (contexts.length == 0){
+                parseQuads(tx, parser, executor, futures);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
+            }
 
             try {
                 InputStream in = new FileInputStream(file);
@@ -326,7 +327,6 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
-            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -340,14 +340,14 @@ public class MarkLogicClientImpl {
         } else {
             //triples
 
-            String[] userContexts = prepareUserContexts(contexts);
-            insertGraphDocuments(tx, executor, futures, new HashSet<String>(Arrays.asList(userContexts)));
-
-
             RDFParser parser = Rio.createParser(dataFormat);
-            parseTriples(tx, parser, executor, futures, userContexts);
+            if (contexts.length == 0) {
+                parseTriples(tx, parser, executor, futures, DEFAULT_GRAPH_URI);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
+            }
 
-            System.out.println("Parse time: " + System.currentTimeMillis());
             try {
                 InputStream in = new FileInputStream(file);
                 parser.parse(in, Util.notNull(baseURI) ? baseURI : file.toURI().toString());
@@ -381,13 +381,16 @@ public class MarkLogicClientImpl {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(Integer.parseInt(util.getProps().getProperty("threadPoolSize", "18")));
         List<Future<?>> futures = new ArrayList<>();
 
-        doc_count = 0;
-        graph_docs = 0;
         if (dataFormat.supportsContexts()) {
             //Quads
 
             RDFParser parser = Rio.createParser(dataFormat);
-            parseQuads(tx, executor, futures, parser);
+            if (contexts.length == 0) {
+                parseQuads(tx, parser, executor, futures);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
+            }
 
             try {
                 parser.parse(in, Util.notNull(baseURI) ? baseURI : "http://example.org/");
@@ -395,7 +398,6 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
-            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -409,11 +411,13 @@ public class MarkLogicClientImpl {
         } else {
             //triples
 
-            String[] userContexts = prepareUserContexts(contexts);
-            insertGraphDocuments(tx, executor, futures, new HashSet<String>(Arrays.asList(userContexts)));
-
             RDFParser parser = Rio.createParser(dataFormat);
-            parseTriples(tx, parser, executor, futures, userContexts);
+            if (contexts.length == 0) {
+                parseTriples(tx, parser, executor, futures, DEFAULT_GRAPH_URI);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
+            }
 
             try {
                 parser.parse(in, Util.notNull(baseURI) ? baseURI : "http://example.org/");
@@ -421,7 +425,6 @@ public class MarkLogicClientImpl {
                 e.printStackTrace();
             }
 
-            System.out.println("Parse time: " + System.currentTimeMillis());
             for (Future<?> future : futures) {
                 try {
                     future.get();
@@ -692,20 +695,30 @@ public class MarkLogicClientImpl {
         private DocumentWriteSet writeSet;
         private Transaction tx;
         private XMLDocumentManager documentManager;
+        private List<String> graphList;
 
-        Task(DocumentWriteSet writeSet, Transaction tx, XMLDocumentManager documentManager) {
+        Task(DocumentWriteSet writeSet, Transaction tx, XMLDocumentManager documentManager, List<String> graphList) {
             this.writeSet = writeSet;
             this.tx = tx;
             this.documentManager = documentManager;
+            this.graphList = graphList;
         }
 
         @Override
         public void run() {
-            documentManager.write(writeSet, tx);
+            if (graphList != null){
+                // To be used with the server-side transform https://gist.github.com/akshaysonvane/da14eea5e55fb0449fea3ce96d2950bf
+                ServerTransform transform = new ServerTransform("create-graph-doc-transform");
+                transform.put("graph-uris", graphList);
+                documentManager.write(writeSet, transform, tx);
+            }
+            else{
+                documentManager.write(writeSet, tx);
+            }
         }
     }
 
-    private void parseTriples(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures, String[] userContexts) {
+    private void parseTriples(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures, String context) {
         parser.setRDFHandler(new RDFHandler() {
             StringBuffer sb;
             int i = 0;
@@ -723,17 +736,15 @@ public class MarkLogicClientImpl {
             }
 
             void endDoc() {
-                doc_count++;
-
                 sb.append("</sem:triples>\n");
                 String st = sb.toString();
-                DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(userContexts);
+                DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(context);
                 writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
 
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
                     writeSet = documentManager.newWriteSet();
                 }
             }
@@ -747,9 +758,7 @@ public class MarkLogicClientImpl {
             public void endRDF() throws RDFHandlerException {
                 endDoc();
                 //flush remaining documents when DOCS_PER_BATCH is not full
-                futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
-                System.out.println("Document count: "+ doc_count);
-                System.out.println("Graph count: "+ graph_docs);
+                futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
             }
 
             @Override
@@ -780,7 +789,7 @@ public class MarkLogicClientImpl {
         });
     }
 
-    private void parseQuads(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, RDFParser parser) {
+    private void parseQuads(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures) {
         parser.setRDFHandler(new RDFHandler() {
 
             int i = 0;
@@ -804,8 +813,6 @@ public class MarkLogicClientImpl {
             }
 
             public void endDoc(String graph) {
-                doc_count++;
-
                 StringBuilder sb = graphCache.get(graph);
                 sb.append("</sem:triples>\n");
 
@@ -813,11 +820,17 @@ public class MarkLogicClientImpl {
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
                 writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
 
+                if (!graphSet.contains(graph)){
+                    graphSet.add(graph);
+                    graphList.add(graph);
+                }
+
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                     writeSet = documentManager.newWriteSet();
+                    graphList = new ArrayList<>();
                 }
 
                 graphCache.remove(graph);
@@ -827,6 +840,7 @@ public class MarkLogicClientImpl {
             Map<String, StringBuilder> graphCache;
             Map<String, Integer> tripleCounts;
             Set<String> graphSet;
+            List<String> graphList;
 
             @Override
             public void startRDF() throws RDFHandlerException {
@@ -835,6 +849,7 @@ public class MarkLogicClientImpl {
                 tripleCounts = new ConcurrentHashMap<>();
                 writeSet = documentManager.newWriteSet();
                 graphSet = new HashSet<>();
+                graphList = new ArrayList<>();
             }
 
             @Override
@@ -846,12 +861,10 @@ public class MarkLogicClientImpl {
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
 
-                insertGraphDocuments(tx, executor, futures, graphSet);
-                System.out.println("Document count: "+ doc_count);
-                System.out.println("Graph count: "+ graph_docs);
+                //insertGraphDocuments(tx, executor, futures, graphSet);
             }
 
             @Override
@@ -866,9 +879,7 @@ public class MarkLogicClientImpl {
                     String graph = st.getContext().toString();
 
                     //To create graph document
-                    if (!graphSet.contains(graph)) {
-                        graphSet.add(graph);
-                    }
+                    //graphSet.add(graph);
 
                     if (tripleCounts.containsKey(graph)) {
                         int j = 1 + tripleCounts.get(graph);
@@ -903,11 +914,123 @@ public class MarkLogicClientImpl {
                     }
 
                     //To create graph document
-                    if (!graphSet.contains(DEFAULT_GRAPH_URI)) {
-                        graphSet.add(DEFAULT_GRAPH_URI);
-                    }
+                    //graphSet.add(DEFAULT_GRAPH_URI);
 
                     triple(graphCache.get(DEFAULT_GRAPH_URI), st);
+                }
+            }
+
+            @Override
+            public void handleComment(String comment) throws RDFHandlerException {
+
+            }
+
+            private void triple(StringBuilder sb, Statement st) {
+                sb.append("<sem:triple>\n");
+                sb.append(subject(st.getSubject()));
+                sb.append(predicate(st.getPredicate()));
+                sb.append(object(st.getObject()));
+                sb.append("</sem:triple>\n");
+            }
+        });
+    }
+
+    private void parseTriplesWithSuppliedContexts(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures, String[] userContexts) {
+        parser.setRDFHandler(new RDFHandler() {
+
+            int T_PER_DOC = Integer.parseInt(util.getProps().getProperty("quadsT_PER_DOC", "100"));
+            int DOCS_PER_BATCH = Integer.parseInt(util.getProps().getProperty("quadsDOCS_PER_BATCH", "3000"));
+            int n = 0;
+
+            XMLDocumentManager documentManager = databaseClient.newXMLDocumentManager();
+            DocumentWriteSet writeSet = documentManager.newWriteSet();
+
+            public void startDoc(StringBuilder sb) {
+                sb.append("<sem:triples xmlns:sem=\"http://marklogic.com/semantics\">\n");
+            }
+
+            public void endDoc(String graph) {
+                StringBuilder sb = graphCache.get(graph);
+                sb.append("</sem:triples>\n");
+
+                String st = sb.toString();
+                DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
+                writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
+
+                if (!graphSet.contains(graph)){
+                    graphSet.add(graph);
+                    graphList.add(graph);
+                }
+
+                n++;
+                if (n == DOCS_PER_BATCH) {
+                    n = 0;
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                    writeSet = documentManager.newWriteSet();
+                    graphList = new ArrayList<>();
+                }
+
+                graphCache.remove(graph);
+            }
+
+
+            Map<String, StringBuilder> graphCache;
+            Map<String, Integer> tripleCounts;
+            Set<String> graphSet;
+            List<String> graphList;
+
+            @Override
+            public void startRDF() throws RDFHandlerException {
+                documentManager = databaseClient.newXMLDocumentManager();
+                graphCache = new ConcurrentHashMap<>();
+                tripleCounts = new ConcurrentHashMap<>();
+                writeSet = documentManager.newWriteSet();
+                graphSet = new HashSet<>();
+                graphList = new ArrayList<>();
+            }
+
+            @Override
+            public void endRDF() throws RDFHandlerException {
+
+                for (String key : graphCache.keySet()) {
+                    endDoc(key);
+                }
+
+                //flush remaining documents when DOCS_PER_BATCH is not full
+                if (!writeSet.isEmpty()) {
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                }
+
+                //insertGraphDocuments(tx, executor, futures, graphSet);
+            }
+
+            @Override
+            public void handleNamespace(String prefix, String uri) throws RDFHandlerException {
+
+            }
+
+            @Override
+            public void handleStatement(Statement st) throws RDFHandlerException {
+                for (String context : userContexts){
+
+                    //graphSet.add(context);
+
+                    if (tripleCounts.containsKey(context)) {
+                        int j = 1 + tripleCounts.get(context);
+                        tripleCounts.put(context, j);
+                        if (j > T_PER_DOC) {
+                            tripleCounts.put(context, 1);
+                            endDoc(context);
+                            graphCache.put(context, new StringBuilder());
+                            startDoc(graphCache.get(context));
+                        }
+                    } else {
+                        tripleCounts.put(context, 1);
+                        graphCache.put(context, new StringBuilder());
+                        startDoc(graphCache.get(context));
+                    }
+
+                    triple(graphCache.get(context), st);
                 }
             }
 
@@ -967,41 +1090,10 @@ public class MarkLogicClientImpl {
         }
     }
 
-//    private void insertGraphDocuments(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, Set<String> graphSet) {
-//        int MAX_GRAPHS_PER_REQUEST = 100;
-//        int max = MAX_GRAPHS_PER_REQUEST;
-//        StringBuilder stringBuilder = new StringBuilder();
-//        graph_docs += graphSet.size();
-//
-//        for (String graph : graphSet) {
-//            if (max == 1) {
-//                max = MAX_GRAPHS_PER_REQUEST;
-//                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
-//                String graphsQuery = stringBuilder.toString();
-//                futures.add(executor.submit(() -> {
-//                    performUpdateQuery(graphsQuery, null, tx, true, null);
-//                }));
-//                stringBuilder = new StringBuilder();
-//            } else {
-//                max--;
-//                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
-//            }
-//        }
-//
-//        //flush remaining graph documents when max_graphs_per_request is not satisfied.
-//        String graphsQuery = stringBuilder.toString();
-//        if (!graphsQuery.equals("")) {
-//            futures.add(executor.submit(() -> {
-//                performUpdateQuery(graphsQuery, null, tx, true, null);
-//            }));
-//        }
-//    }
-
     private void insertGraphDocuments(Transaction tx, ThreadPoolExecutor executor, List<Future<?>> futures, Set<String> graphSet) {
         int MAX_GRAPHS_PER_REQUEST = Integer.parseInt(util.getProps().getProperty("MAX_GRAPHS_PER_REQUEST", "100"));
         int max = MAX_GRAPHS_PER_REQUEST;
         StringBuilder stringBuilder = new StringBuilder();
-        graph_docs += graphSet.size();
 
         for (String graph : graphSet) {
             if (max == 1) {
@@ -1028,18 +1120,12 @@ public class MarkLogicClientImpl {
     }
 
     private String[] prepareUserContexts(Resource... contexts) {
-        String[] userContexts;
-        if (contexts.length == 0) {
-            userContexts = new String[1];
-            userContexts[0] = DEFAULT_GRAPH_URI;
-        } else {
-            userContexts = new String[contexts.length];
-            for (int i = 0; i < contexts.length; i++) {
-                if (Util.notNull(contexts[i])) {
-                    userContexts[i] = contexts[i].toString();
-                } else {
-                    userContexts[i] = DEFAULT_GRAPH_URI;
-                }
+        String[] userContexts = new String[contexts.length];
+        for (int i = 0; i < contexts.length; i++) {
+            if (Util.notNull(contexts[i])) {
+                userContexts[i] = contexts[i].toString();
+            } else {
+                userContexts[i] = DEFAULT_GRAPH_URI;
             }
         }
         return userContexts;
