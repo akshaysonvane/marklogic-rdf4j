@@ -2,8 +2,11 @@ package com.marklogic.semantics.rdf4j;
 
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.eclipse.rdf4j.model.ValueFactory;
 import org.eclipse.rdf4j.rio.RDFFormat;
 import org.junit.After;
@@ -13,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.Arrays;
 
 public class ClusterTest extends Rdf4jTestBase {
     protected MarkLogicRepositoryConnection conn;
@@ -53,6 +57,7 @@ public class ClusterTest extends Rdf4jTestBase {
         File[] listOfFiles = folder.listFiles();
         long startTime;
 
+        Arrays.sort(listOfFiles);
         for (int i = 0; i < listOfFiles.length; i++) {
             System.out.println("Name: " + listOfFiles[i].getName());
 
@@ -61,18 +66,18 @@ public class ClusterTest extends Rdf4jTestBase {
                 startTime = System.currentTimeMillis();
                 System.out.println("Start time: " + startTime);
 
-                conn.begin();
+//                conn.begin();  // Force single transaction
                 conn.add(listOfFiles[i], "http://example.org/example1/", RDFFormat.TRIG);
-                conn.commit();
+//                conn.commit();
 
                 System.out.println("Ingestion time: " + (System.currentTimeMillis() - startTime));
             } else if (ext.equals("nquad") || ext.equals("nq")) {
                 startTime = System.currentTimeMillis();
                 System.out.println("Start time: " + startTime);
 
-                conn.begin();
+//                conn.begin();  // Force single transaction
                 conn.add(listOfFiles[i], "http://example.org/example1/", RDFFormat.NQUADS);
-                conn.commit();
+//                conn.commit();
 
                 System.out.println("Ingestion time: " + (System.currentTimeMillis() - startTime));
             } else {
@@ -86,12 +91,10 @@ public class ClusterTest extends Rdf4jTestBase {
 
     @Test
     public void clearDB() {
-        DefaultHttpClient client = null;
-        try {
-            client = new DefaultHttpClient();
-            client.getCredentialsProvider().setCredentials(
-                    new AuthScope(host, port),
-                    new UsernamePasswordCredentials("admin", "admin"));
+        CredentialsProvider credsProvider = new BasicCredentialsProvider();
+        credsProvider.setCredentials(new AuthScope(host, port),
+                new UsernamePasswordCredentials("admin", "admin"));
+        try (CloseableHttpClient client = HttpClientBuilder.create().setDefaultCredentialsProvider(credsProvider).build()) {
             String uri = "http://" + host + ":" + port + "/v1/search/";
             HttpDelete delete = new HttpDelete(uri);
             client.execute(delete);
@@ -99,8 +102,6 @@ public class ClusterTest extends Rdf4jTestBase {
         } catch (Exception e) {
             // writing error to Log
             e.printStackTrace();
-        } finally {
-            client.close();
         }
     }
 }
