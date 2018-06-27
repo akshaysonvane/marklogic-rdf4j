@@ -875,6 +875,8 @@ public class MarkLogicClientImpl {
 
                 if (!lastKey.equals("")) {
                     n = 0; // Initialize to zero so ingestion does not take place via endDoc function in the case where n == DOCS_PER_BATCH
+                    writeSet = documentManager.newWriteSet();
+
                     endDoc(lastKey);
                     futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
@@ -1027,6 +1029,8 @@ public class MarkLogicClientImpl {
 
                 if (!lastKey.equals("")) {
                     n = 0; // Initialize to zero so ingestion does not take place via endDoc function in the case where n == DOCS_PER_BATCH
+                    writeSet = documentManager.newWriteSet();
+
                     endDoc(lastKey);
                     futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
