@@ -818,7 +818,9 @@ public class MarkLogicClientImpl {
 
                 String st = sb.toString();
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
-                writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
+                if ((n+1) != DOCS_PER_BATCH) {
+                    writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
+                }
 
                 if (!graphSet.contains(graph)){
                     graphSet.add(graph);
@@ -828,7 +830,8 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                    futures.add(executor.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
                     writeSet = documentManager.newWriteSet();
                     graphList = new ArrayList<>();
                 }
@@ -855,12 +858,26 @@ public class MarkLogicClientImpl {
             @Override
             public void endRDF() throws RDFHandlerException {
 
+                int size = graphCache.keySet().size() - 1;
+                int q = 0;
+                String lastKey = "";
                 for (String key : graphCache.keySet()) {
-                    endDoc(key);
+                    if (q++ != size)
+                        endDoc(key);
+                    else
+                        lastKey = key;
                 }
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                }
+
+                if (!lastKey.equals("")) {
+                    n = 0; // Initialize to zero so ingestion does not take place via endDoc function in the case where n == DOCS_PER_BATCH
+                    writeSet = documentManager.newWriteSet();
+
+                    endDoc(lastKey);
                     futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
 
@@ -955,7 +972,9 @@ public class MarkLogicClientImpl {
 
                 String st = sb.toString();
                 DocumentMetadataHandle metadata = new DocumentMetadataHandle().withCollections(graph);
-                writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
+                if ((n+1) != DOCS_PER_BATCH) {
+                    writeSet.add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st));
+                }
 
                 if (!graphSet.contains(graph)){
                     graphSet.add(graph);
@@ -965,7 +984,8 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                    futures.add(executor.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList)));
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
                     writeSet = documentManager.newWriteSet();
                     graphList = new ArrayList<>();
                 }
@@ -992,12 +1012,26 @@ public class MarkLogicClientImpl {
             @Override
             public void endRDF() throws RDFHandlerException {
 
+                int size = graphCache.keySet().size() - 1;
+                int q = 0;
+                String lastKey = "";
                 for (String key : graphCache.keySet()) {
-                    endDoc(key);
+                    if (q++ != size)
+                        endDoc(key);
+                    else
+                        lastKey = key;
                 }
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
+                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                }
+
+                if (!lastKey.equals("")) {
+                    n = 0; // Initialize to zero so ingestion does not take place via endDoc function in the case where n == DOCS_PER_BATCH
+                    writeSet = documentManager.newWriteSet();
+
+                    endDoc(lastKey);
                     futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
                 }
 
@@ -1098,15 +1132,15 @@ public class MarkLogicClientImpl {
         for (String graph : graphSet) {
             if (max == 1) {
                 max = MAX_GRAPHS_PER_REQUEST;
-                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+                stringBuilder.append("if(fn:empty(fn:doc(\"").append(validateIRI(graph)).append("\"))) then sem:create-graph-document(sem:iri(\"").append(validateIRI(graph)).append("\"),(xdmp:default-permissions())) else ();");
                 String graphsQuery = stringBuilder.toString();
                 futures.add(executor.submit(() -> {
-                    performUpdateQuery(graphsQuery, null, tx, true, null);
+                    databaseClient.newServerEval().xquery(graphsQuery).transaction(tx).eval();
                 }));
                 stringBuilder = new StringBuilder();
             } else {
                 max--;
-                stringBuilder.append("CREATE SILENT GRAPH <").append(validateIRI(graph)).append(">;");
+                stringBuilder.append("if(fn:empty(fn:doc(\"").append(validateIRI(graph)).append("\"))) then sem:create-graph-document(sem:iri(\"").append(validateIRI(graph)).append("\"),(xdmp:default-permissions())) else ();");
             }
         }
 
@@ -1114,7 +1148,7 @@ public class MarkLogicClientImpl {
         String graphsQuery = stringBuilder.toString();
         if (!graphsQuery.equals("")) {
             futures.add(executor.submit(() -> {
-                performUpdateQuery(graphsQuery, null, tx, true, null);
+                databaseClient.newServerEval().xquery(graphsQuery).transaction(tx).eval();
             }));
         }
     }
