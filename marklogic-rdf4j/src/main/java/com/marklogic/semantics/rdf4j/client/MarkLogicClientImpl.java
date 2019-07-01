@@ -19,17 +19,20 @@
  */
 package com.marklogic.semantics.rdf4j.client;
 
-import java.io.*;
-import java.net.URISyntaxException;
-import java.util.*;
-import java.util.concurrent.*;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.marklogic.client.DatabaseClient;
+import com.marklogic.client.ForbiddenUserException;
+import com.marklogic.client.Transaction;
 import com.marklogic.client.document.DocumentWriteSet;
 import com.marklogic.client.document.ServerTransform;
 import com.marklogic.client.document.XMLDocumentManager;
+import com.marklogic.client.impl.SPARQLBindingsImpl;
 import com.marklogic.client.io.DocumentMetadataHandle;
+import com.marklogic.client.io.InputStreamHandle;
 import com.marklogic.client.io.StringHandle;
+import com.marklogic.client.query.QueryDefinition;
 import com.marklogic.client.semantics.*;
+import com.marklogic.semantics.rdf4j.MarkLogicRdf4jException;
 import com.marklogic.semantics.rdf4j.utils.Util;
 import org.eclipse.rdf4j.common.net.ParsedIRI;
 import org.eclipse.rdf4j.model.*;
@@ -40,14 +43,10 @@ import org.eclipse.rdf4j.rio.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.ForbiddenUserException;
-import com.marklogic.client.Transaction;
-import com.marklogic.client.impl.SPARQLBindingsImpl;
-import com.marklogic.client.io.InputStreamHandle;
-import com.marklogic.client.query.QueryDefinition;
-import com.marklogic.semantics.rdf4j.MarkLogicRdf4jException;
+import java.io.*;
+import java.net.URISyntaxException;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * Internal class for interacting with Java Client API.
@@ -306,65 +305,7 @@ public class MarkLogicClientImpl {
      */
     // performAdd
     public void performAdd(File file, String baseURI, RDFFormat dataFormat, Transaction tx, Resource... contexts) throws RDFParseException {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
-        List<Future<?>> futures = new ArrayList<>();
-
-        if (dataFormat.supportsContexts()) {
-            //Quads
-
-            RDFParser parser = Rio.createParser(dataFormat);
-            if (contexts.length == 0){
-                parseQuads(tx, parser, executor, futures);
-            }
-            else {
-                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
-            }
-
-            try {
-                InputStream in = new FileInputStream(file);
-                parser.parse(in, Util.notNull(baseURI) ? baseURI : file.toURI().toString());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            executor.shutdown();
-
-        } else {
-            //triples
-
-            RDFParser parser = Rio.createParser(dataFormat);
-            if (contexts.length == 0) {
-                parseTriples(tx, parser, executor, futures, DEFAULT_GRAPH_URI);
-            }
-            else {
-                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
-            }
-
-            try {
-                InputStream in = new FileInputStream(file);
-                parser.parse(in, Util.notNull(baseURI) ? baseURI : file.toURI().toString());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            executor.shutdown();
-        }
+        parse(file, null, baseURI, dataFormat, tx, contexts);
     }
 
     /**
@@ -378,63 +319,7 @@ public class MarkLogicClientImpl {
      * @throws RDFParseException
      */
     public void performAdd(InputStream in, String baseURI, RDFFormat dataFormat, Transaction tx, Resource... contexts) throws RDFParseException, MarkLogicRdf4jException {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
-        List<Future<?>> futures = new ArrayList<>();
-
-        if (dataFormat.supportsContexts()) {
-            //Quads
-
-            RDFParser parser = Rio.createParser(dataFormat);
-            if (contexts.length == 0) {
-                parseQuads(tx, parser, executor, futures);
-            }
-            else {
-                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
-            }
-
-            try {
-                parser.parse(in, Util.notNull(baseURI) ? baseURI : "http://example.org/");
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            executor.shutdown();
-
-        } else {
-            //triples
-
-            RDFParser parser = Rio.createParser(dataFormat);
-            if (contexts.length == 0) {
-                parseTriples(tx, parser, executor, futures, DEFAULT_GRAPH_URI);
-            }
-            else {
-                parseTriplesWithSuppliedContexts(tx, parser, executor, futures, prepareUserContexts(contexts));
-            }
-
-            try {
-                parser.parse(in, Util.notNull(baseURI) ? baseURI : "http://example.org/");
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            executor.shutdown();
-        }
+        parse(null, in, baseURI, dataFormat, tx, contexts);
     }
 
     /**
@@ -691,7 +576,7 @@ public class MarkLogicClientImpl {
         return qdef;
     }
 
-    class Task implements Runnable {
+    class Task implements Callable<Void> {
         private DocumentWriteSet writeSet;
         private Transaction tx;
         private XMLDocumentManager documentManager;
@@ -705,7 +590,7 @@ public class MarkLogicClientImpl {
         }
 
         @Override
-        public void run() {
+        public Void call() {
             if (graphList != null){
                 // To be used with the server-side transform https://gist.github.com/akshaysonvane/da14eea5e55fb0449fea3ce96d2950bf
                 ServerTransform transform = new ServerTransform("create-graph-doc-transform");
@@ -715,10 +600,12 @@ public class MarkLogicClientImpl {
             else{
                 documentManager.write(writeSet, tx);
             }
+
+            return null;
         }
     }
 
-    private void parseTriples(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures, String context) {
+    private void parseTriples(Transaction tx, RDFParser parser, ExecutorCompletionService<Void> completionService, String context, int[] count) {
         parser.setRDFHandler(new RDFHandler() {
             StringBuffer sb;
             int i = 0;
@@ -744,7 +631,8 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                    completionService.submit(new Task(writeSet, tx, documentManager, null));
+                    count[0]++;
                     writeSet = documentManager.newWriteSet();
                 }
             }
@@ -758,7 +646,8 @@ public class MarkLogicClientImpl {
             public void endRDF() throws RDFHandlerException {
                 endDoc();
                 //flush remaining documents when DOCS_PER_BATCH is not full
-                futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                completionService.submit(new Task(writeSet, tx, documentManager, null));
+                count[0]++;
             }
 
             @Override
@@ -789,7 +678,7 @@ public class MarkLogicClientImpl {
         });
     }
 
-    private void parseQuads(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures) {
+    private void parseQuads(Transaction tx, RDFParser parser, ExecutorCompletionService<Void> completionService, int[] count) {
         parser.setRDFHandler(new RDFHandler() {
 
             int i = 0;
@@ -830,8 +719,9 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList)));
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                    completionService.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList));
+                    completionService.submit(new Task(writeSet, tx, documentManager, null));
+                    count[0] += 2;
                     writeSet = documentManager.newWriteSet();
                     graphList = new ArrayList<>();
                 }
@@ -870,7 +760,8 @@ public class MarkLogicClientImpl {
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                    completionService.submit(new Task(writeSet, tx, documentManager, null));
+                    count[0]++;
                 }
 
                 if (!lastKey.equals("")) {
@@ -878,10 +769,11 @@ public class MarkLogicClientImpl {
                     writeSet = documentManager.newWriteSet();
 
                     endDoc(lastKey);
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                    completionService.submit(new Task(writeSet, tx, documentManager, graphList));
+                    count[0]++;
                 }
 
-                //insertGraphDocuments(tx, executor, futures, graphSet);
+                //insertGraphDocuments(tx, completionService, futures, graphSet);
             }
 
             @Override
@@ -952,7 +844,7 @@ public class MarkLogicClientImpl {
         });
     }
 
-    private void parseTriplesWithSuppliedContexts(Transaction tx, RDFParser parser, ThreadPoolExecutor executor, List<Future<?>> futures, String[] userContexts) {
+    private void parseTriplesWithSuppliedContexts(Transaction tx, RDFParser parser, ExecutorCompletionService<Void> completionService, String[] userContexts, int[] count) {
         parser.setRDFHandler(new RDFHandler() {
 
             int T_PER_DOC = 100;
@@ -984,8 +876,9 @@ public class MarkLogicClientImpl {
                 n++;
                 if (n == DOCS_PER_BATCH) {
                     n = 0;
-                    futures.add(executor.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList)));
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                    completionService.submit(new Task(documentManager.newWriteSet().add("/triplestore/" + UUID.randomUUID() + ".xml", metadata, new StringHandle(st)), tx, documentManager, graphList));
+                    completionService.submit(new Task(writeSet, tx, documentManager, null));
+                    count[0] += 2;
                     writeSet = documentManager.newWriteSet();
                     graphList = new ArrayList<>();
                 }
@@ -1024,7 +917,8 @@ public class MarkLogicClientImpl {
 
                 //flush remaining documents when DOCS_PER_BATCH is not full
                 if (!writeSet.isEmpty()) {
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, null)));
+                    completionService.submit(new Task(writeSet, tx, documentManager, null));
+                    count[0]++;
                 }
 
                 if (!lastKey.equals("")) {
@@ -1032,10 +926,11 @@ public class MarkLogicClientImpl {
                     writeSet = documentManager.newWriteSet();
 
                     endDoc(lastKey);
-                    futures.add(executor.submit(new Task(writeSet, tx, documentManager, graphList)));
+                    completionService.submit(new Task(writeSet, tx, documentManager, graphList));
+                    count[0]++;
                 }
 
-                //insertGraphDocuments(tx, executor, futures, graphSet);
+                //insertGraphDocuments(tx, completionService, futures, graphSet);
             }
 
             @Override
@@ -1171,5 +1066,54 @@ public class MarkLogicClientImpl {
         } catch (URISyntaxException e) {
             throw new RDFParseException(e.getMessage());
         }
+    }
+
+    private void parse(File file, InputStream in, String baseURI, RDFFormat dataFormat, Transaction tx, Resource... contexts) {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(18);
+        ExecutorCompletionService<Void> executorCompletionService = new ExecutorCompletionService<>(executor);
+        int[] count = {0};
+
+        RDFParser parser = Rio.createParser(dataFormat);
+        if (dataFormat.supportsContexts()) {
+            //Quads
+
+            if (contexts.length == 0) {
+                parseQuads(tx, parser, executorCompletionService, count);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executorCompletionService, prepareUserContexts(contexts), count);
+            }
+        } else {
+            //triples
+
+            if (contexts.length == 0) {
+                parseTriples(tx, parser, executorCompletionService, DEFAULT_GRAPH_URI, count);
+            }
+            else {
+                parseTriplesWithSuppliedContexts(tx, parser, executorCompletionService, prepareUserContexts(contexts), count);
+            }
+        }
+
+        try {
+            if (file == null) {
+                parser.parse(in, Util.notNull(baseURI) ? baseURI : "http://example.org/");
+            }
+            else {
+                in = new FileInputStream(file);
+                parser.parse(in, Util.notNull(baseURI) ? baseURI : file.toURI().toString());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        for (int i = 0; i < count[0]; i++) {
+            try {
+                executorCompletionService.take().get();
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+
+        executor.shutdown();
     }
 }
